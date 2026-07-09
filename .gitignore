@@ -1,0 +1,30 @@
+# Local HTTPS certificates (private keys — do not commit)
+certs/
+
+# Secrets and local config
+.web_session_secret
+app_db_config.json
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Local data and logs
+inventory.db
+web_server.log
+web_server.pid
+Inventory Reports/
+
+# macOS metadata
+.DS_Store
+
+# Archives
+*.zip
+email_export/
+
+# Vercel local state
+.vercel

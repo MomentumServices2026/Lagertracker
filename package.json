@@ -1,0 +1,6 @@
+{
+  "name": "lager-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Momentum Services Inventory — web app (Vercel) + optional Mac desktop client"
+}

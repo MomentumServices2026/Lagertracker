@@ -1,0 +1,9 @@
+# Copy to app_db_config.json for local development (or use env vars on Vercel).
+{
+  "mode": "supabase",
+  "host": "db.YOUR_PROJECT.supabase.co",
+  "port": "5432",
+  "dbname": "postgres",
+  "user": "postgres",
+  "password": "YOUR_SUPABASE_DB_PASSWORD"
+}
