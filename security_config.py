@@ -40,9 +40,24 @@ def get_session_secret():
         if secret:
             return secret
     if is_vercel():
+        import hashlib
+
+        # Vercel filesystem is read-only — derive a stable secret from deployment env.
+        material = ":".join(
+            filter(
+                None,
+                [
+                    os.environ.get("VERCEL_URL", ""),
+                    os.environ.get("SUPABASE_DB_HOST", ""),
+                    os.environ.get("SUPABASE_DB_PASSWORD", ""),
+                ],
+            )
+        )
+        if material:
+            return hashlib.sha256(material.encode()).hexdigest()
         raise RuntimeError(
-            "SESSION_SECRET environment variable is required on Vercel. "
-            "Add it in Project Settings → Environment Variables."
+            "Add environment variables in Vercel Project Settings: "
+            "SUPABASE_DB_HOST, SUPABASE_DB_PASSWORD, and optionally SESSION_SECRET."
         )
     if os.path.isfile(SESSION_SECRET_FILE):
         with open(SESSION_SECRET_FILE, encoding="utf-8") as f:
