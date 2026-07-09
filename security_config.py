@@ -39,6 +39,11 @@ def get_session_secret():
         secret = os.environ.get(key)
         if secret:
             return secret
+    if is_vercel():
+        raise RuntimeError(
+            "SESSION_SECRET environment variable is required on Vercel. "
+            "Add it in Project Settings → Environment Variables."
+        )
     if os.path.isfile(SESSION_SECRET_FILE):
         with open(SESSION_SECRET_FILE, encoding="utf-8") as f:
             return f.read().strip()

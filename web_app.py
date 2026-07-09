@@ -2082,7 +2082,7 @@ PAGE = """
 
     async function exportReport() {
       try {
-        const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+        const date = new Date().toLocaleDateString('en-GB').replace(/\\//g, '-');
         await shareExportFile('/api/export/pdf', 'application/pdf', `${date}.pdf`, 'Inventory Report');
       } catch (e) {
         if (e.name !== 'AbortError') toast(e.message || 'Export cancelled');
@@ -2091,7 +2091,7 @@ PAGE = """
 
     async function exportAiReport() {
       try {
-        const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+        const date = new Date().toLocaleDateString('en-GB').replace(/\\//g, '-');
         await shareExportFile(
           '/api/export/ai-report',
           'application/pdf',
