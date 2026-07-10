@@ -2,25 +2,10 @@
 __pycache__/
 *.pyc
 .DS_Store
-certs/
 .web_session_secret
 app_db_config.json
 inventory.db
-web_server.log
-web_server.pid
 Inventory Reports/
 email_export/
-*.command
-*.plist
 *.zip
-check_web_server.sh
-enable_always_on_server.sh
-install_autostart.sh
-uninstall_autostart.sh
-apply_web_update.sh
-setup_lan_https.sh
-trust_iphone_ca.sh
-show_phone_url.sh
-start_web_background.sh
-stop_web_background.sh
-enable_lan_security.sh
+Launch Momentum Services Inventory 2.command

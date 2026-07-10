@@ -2,7 +2,6 @@
 """Mobile-friendly full-featured web interface for Lager Tracker."""
 
 import os
-import socket
 import time
 from datetime import datetime, timedelta
 
@@ -23,11 +22,8 @@ from dinghy_logic import (
 from jit_engine import calculate_jit_forecast
 from security_config import (
     WEB_PASSCODE,
-    build_ssl_context,
     get_session_secret,
     https_enabled,
-    is_vercel,
-    url_scheme,
 )
 from web_logic import (
     DEFAULT_LEAD_TIME_DAYS,
@@ -43,7 +39,6 @@ from web_logic import (
     get_conn,
 )
 
-PORT = int(os.environ.get("WEB_PORT", "8080"))
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "branding", "icons")
 if os.environ.get("VERCEL_GIT_COMMIT_SHA"):
     APP_VERSION = os.environ["VERCEL_GIT_COMMIT_SHA"][:12]
@@ -68,7 +63,6 @@ _cache = {
     "activity": {"data": None, "ts": 0.0, "ttl": 300, "key": None},
     "year_options": {"data": None, "ts": 0.0, "ttl": 3600, "key": None},
     "sections": {"data": None, "ts": 0.0, "ttl": 3600, "key": None},
-    "network": {"data": None, "ts": 0.0, "ttl": 3600, "key": None},
 }
 
 
@@ -147,17 +141,6 @@ def require_passcode():
     if request.path.startswith("/api/") and not is_authenticated():
         return jsonify({"error": "Unauthorized", "auth_required": True}), 401
     return None
-
-
-def lan_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"
 
 
 PAGE = """
@@ -805,11 +788,9 @@ PAGE = """
       <span class="export-hint">Separate tracking — not shown in main Stock</span>
     </button>
     <div class="chart-card" style="margin-top:12px">
-      <h3>Connect from iPhone</h3>
-      <div id="connectInfo" class="info-box" style="margin:0">Loading…</div>
-      <p style="font-size:0.82rem;color:var(--muted);margin:8px 0 0" id="connectHint">
-        Use the secure URL shown above. Same Wi-Fi as this Mac (not guest network).
-      </p>
+      <h3>Open on any device</h3>
+      <div id="onlineAppInfo" class="info-box" style="margin:0"></div>
+      <p class="chart-sub" style="margin:8px 0 0">Bookmark this URL on your phone or tablet.</p>
     </div>
     <div class="info-box" style="margin-top:12px">
       PDF export, CSV import, and email reports are available in the Mac desktop app.
@@ -1373,7 +1354,7 @@ PAGE = """
       if (screen === 'add') prepAddForm();
       if (screen === 'analytics') loadAnalytics();
       if (screen === 'forecast') loadForecast();
-      if (screen === 'more') { loadSections(); loadConnectInfo(); }
+      if (screen === 'more') { loadSections(); showOnlineAppInfo(); }
       if (screen === 'linen') loadLinenProducts();
       if (screen === 'dinghy') loadDinghyProducts();
     }
@@ -2009,27 +1990,11 @@ PAGE = """
       } catch (e) { toast(e.message); }
     }
 
-    async function loadConnectInfo() {
-      try {
-        const info = await api('/api/network');
-        const urls = info.urls.map(u =>
-          `<div style="margin:6px 0"><a href="${u}" style="color:var(--primary);font-weight:600;word-break:break-all">${u}</a></div>`
-        ).join('');
-        document.getElementById('connectInfo').innerHTML =
-          `<div>Server: <strong>${info.status}</strong>${info.secure ? ' · <strong>HTTPS</strong>' : ''}</div>${urls}`;
-        const hint = document.getElementById('connectHint');
-        if (hint) {
-          if (info.deployment === 'vercel') {
-            hint.innerHTML = 'Open this URL on any device with internet access. Connection is encrypted (HTTPS).';
-          } else if (info.secure) {
-            hint.innerHTML = 'Connection is encrypted (HTTPS). Same Wi-Fi as this Mac (not guest network).';
-          } else {
-            hint.innerHTML = 'Run <strong>./enable_lan_security.sh</strong> on your Mac to enable HTTPS.';
-          }
-        }
-      } catch (e) {
-        document.getElementById('connectInfo').textContent = 'Could not load network info.';
-      }
+    function showOnlineAppInfo() {
+      const el = document.getElementById('onlineAppInfo');
+      if (!el) return;
+      const url = window.location.origin;
+      el.innerHTML = `<a href="${url}" style="color:var(--primary);font-weight:600;word-break:break-all">${url}</a>`;
     }
 
     async function loadSections() {
@@ -2809,57 +2774,6 @@ def auth_verify():
         session["authenticated"] = True
         return jsonify({"ok": True})
     return jsonify({"error": "Wrong passcode"}), 401
-
-
-@app.route("/api/network")
-def api_network():
-    cached = _get_cache("network")
-    if cached is not None:
-        return jsonify(cached)
-
-    if is_vercel():
-        vercel_url = os.environ.get("VERCEL_URL", "")
-        urls = [f"https://{vercel_url}"] if vercel_url else []
-        payload = {
-            "status": "running",
-            "secure": True,
-            "scheme": "https",
-            "ip": vercel_url,
-            "port": 443,
-            "hostname": vercel_url,
-            "urls": urls,
-            "deployment": "vercel",
-        }
-        _set_cache("network", "default", payload)
-        return jsonify(payload)
-
-    import subprocess
-    ip = lan_ip()
-    port = PORT
-    hostname = "Mac.local"
-    try:
-        hostname = subprocess.check_output(["scutil", "--get", "LocalHostName"], text=True).strip()
-    except Exception:
-        pass
-    urls = []
-    scheme = url_scheme()
-    if ip and ip != "127.0.0.1":
-        urls.append(f"{scheme}://{ip}:{port}")
-    if hostname:
-        urls.append(f"{scheme}://{hostname}.local:{port}")
-        urls.append(f"{scheme}://{hostname}.fritz.box:{port}")
-    payload = {
-        "status": "running",
-        "secure": https_enabled(),
-        "scheme": scheme,
-        "ip": ip,
-        "port": port,
-        "hostname": hostname,
-        "urls": urls,
-        "deployment": "local",
-    }
-    _set_cache("network", "default", payload)
-    return jsonify(payload)
 
 
 @app.route("/api/version")
@@ -3759,17 +3673,3 @@ def api_analytics_day(day):
     finally:
         _close_conn(conn)
 
-
-if __name__ == "__main__":
-    ip = lan_ip()
-    scheme = url_scheme()
-    ssl_ctx = build_ssl_context()
-    print("Momentum Inventory Web Server")
-    print(f"  On this Mac:   {scheme}://127.0.0.1:{PORT}")
-    print(f"  On your phone: {scheme}://{ip}:{PORT}")
-    if ssl_ctx:
-        print("  Security: HTTPS enabled (LAN traffic encrypted)")
-    else:
-        print("  Security: HTTP only — run ./setup_lan_https.sh to enable HTTPS")
-    print("  Supabase: unchanged (separate encrypted connection)")
-    app.run(host="0.0.0.0", port=PORT, debug=False, ssl_context=ssl_ctx, threaded=True)

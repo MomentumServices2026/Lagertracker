@@ -10,25 +10,23 @@ A unified inventory management app with a mobile-friendly web interface and an o
 | `inventory_app.py` | Mac desktop app (Tkinter) | No — run locally |
 | `sql/` | Supabase schema scripts | Reference only |
 
+**Live app:** https://lagertracker.vercel.app
+
 ## Deploy to Vercel
 
 ### 1. Push to GitHub
 
 ```bash
-git init
 git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USER/lager-tracker.git
-git push -u origin main
+git commit -m "Your changes"
+git push origin main
 ```
 
-**Never commit** `app_db_config.json`, `.web_session_secret`, or `certs/` — they are in `.gitignore`.
+Vercel redeploys automatically from `main`.
 
-### 2. Connect Vercel
+**Never commit** `app_db_config.json`, `.web_session_secret`, or `.env` — they are in `.gitignore`.
 
-1. Go to [vercel.com](https://vercel.com) → **Add New Project** → import your GitHub repo.
-2. Vercel auto-detects Python via `api/index.py` and `requirements.txt`.
-3. Add these **Environment Variables** in the Vercel project settings:
+### 2. Environment Variables (Vercel project settings)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -37,10 +35,8 @@ git push -u origin main
 | `SUPABASE_DB_USER` | No | Default: `postgres` |
 | `SUPABASE_DB_NAME` | No | Default: `postgres` |
 | `SUPABASE_DB_PORT` | No | Default: `5432` |
-| `SESSION_SECRET` | Yes | Random string for session cookies |
+| `SESSION_SECRET` | Recommended | Random string for session cookies |
 | `WEB_PASSCODE` | No | 4-digit lock screen code (default: `0170`) |
-
-4. Deploy. Your app will be at `https://your-project.vercel.app`.
 
 ### 3. Supabase setup
 
@@ -48,15 +44,14 @@ Run these SQL scripts in the Supabase SQL editor (in order):
 
 1. `sql/supabase_setup.sql` — main inventory tables
 2. `sql/supabase_bed_linen_setup.sql` — bed linen module
-3. `sql/forecast_tables_migration.sql` — JIT forecast tables (if not already in setup)
+3. `sql/supabase_dinghy_setup.sql` — dinghy module
+4. `sql/forecast_tables_migration.sql` — JIT forecast tables (if not already in setup)
 
 See `sql/README.md` for details.
 
-## Local development
+## Local development (optional)
 
-### Web app (same UI as Vercel)
-
-**Option A — config file:**
+To test UI changes before pushing to GitHub:
 
 ```bash
 cp app_db_config.example.json app_db_config.json
@@ -65,25 +60,10 @@ cp app_db_config.example.json app_db_config.json
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python3 web_app.py
+flask --app web_app run --port 8080
 ```
 
-Open `http://127.0.0.1:8080` (or `https://` if LAN certs exist).
-
-**Option B — environment variables:**
-
-```bash
-cp .env.example .env
-# Edit .env, then:
-export $(grep -v '^#' .env | xargs)
-python3 web_app.py
-```
-
-**Option C — background server (Mac, auto-restart):**
-
-```bash
-./start_web_background.sh
-```
+Open `http://127.0.0.1:8080` on your Mac only. Production use is via Vercel.
 
 ### Desktop app (Mac only)
 
@@ -91,6 +71,8 @@ python3 web_app.py
 pip install -r requirements.txt
 python3 inventory_app.py
 ```
+
+Or double-click `Launch Momentum Services Inventory 2.command`.
 
 Requires `app_db_config.json` or `SUPABASE_DB_*` environment variables.
 
@@ -106,33 +88,33 @@ pip install -r requirements-desktop.txt
 Browser / iPhone
       │
       ▼
-┌─────────────────┐     ┌──────────────────┐
-│  Vercel         │     │  Local Mac       │
-│  api/index.py   │     │  web_app.py      │
-│  (serverless)   │     │  (dev server)    │
-└────────┬────────┘     └────────┬─────────┘
-         │                       │
-         └───────────┬───────────┘
-                     ▼
-            ┌────────────────┐
-            │    Supabase    │
-            │   PostgreSQL   │
-            └────────────────┘
+┌─────────────────┐
+│  Vercel         │
+│  api/index.py   │
+│  (serverless)   │
+└────────┬────────┘
+         │
+         ▼
+┌────────────────┐
+│    Supabase    │
+│   PostgreSQL   │
+└────────────────┘
 ```
 
-The web UI is a single-page app embedded in `web_app.py` — identical on Vercel and local dev.
+The web UI is a single-page app embedded in `web_app.py`.
 
 ## Features
 
 - Stock management with sections, search, low-stock alerts
-- Bed linen storage (separate inventory)
+- Bed linen and dinghy storage (separate inventories)
 - JIT self-learning forecast engine
 - Analytics dashboards with Chart.js
 - PDF export (inventory + AI analytics reports)
 - 4-digit passcode lock screen
 - Mobile-optimized bottom navigation
+- Drag-and-drop section reordering (More screen)
 
-Desktop-only extras: CSV import, email reports, drag-and-drop sections.
+Desktop-only extras: CSV import, email reports.
 
 ## Dependencies
 
