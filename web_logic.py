@@ -63,23 +63,65 @@ def load_config(force_reload=False):
     return _CONFIG_CACHE
 
 
+def _project_ref(host):
+    prefix = "db."
+    suffix = ".supabase.co"
+    if host.startswith(prefix) and host.endswith(suffix):
+        return host[len(prefix) : -len(suffix)]
+    return os.environ.get("SUPABASE_PROJECT_REF", "")
+
+
+def _vercel_pooler_config(cfg):
+    """Vercel serverless cannot use Supabase direct IPv6 — use the transaction pooler."""
+    if os.environ.get("VERCEL") != "1" and os.environ.get("SUPABASE_USE_POOLER") != "1":
+        return cfg
+
+    direct_host = cfg["host"]
+    pooler_host = os.environ.get("SUPABASE_DB_POOLER_HOST", "")
+    if not pooler_host and direct_host.startswith("db.") and direct_host.endswith(".supabase.co"):
+        pooler_host = os.environ.get(
+            "SUPABASE_DB_POOLER_REGION",
+            "aws-0-eu-central-1.pooler.supabase.com",
+        )
+
+    if not pooler_host:
+        return cfg
+
+    user = cfg.get("user", "postgres")
+    ref = _project_ref(direct_host)
+    if user == "postgres" and ref:
+        user = f"postgres.{ref}"
+
+    return {
+        **cfg,
+        "host": pooler_host,
+        "port": os.environ.get("SUPABASE_DB_POOLER_PORT", "6543"),
+        "user": user,
+        "use_pooler": True,
+    }
+
+
 def get_conn():
     if psycopg is None:
         raise RuntimeError("psycopg is not installed")
 
-    cfg = load_config()
+    cfg = _vercel_pooler_config(load_config())
+    connect_kwargs = {
+        "host": cfg["host"],
+        "port": int(cfg.get("port", 5432)),
+        "dbname": cfg.get("dbname", "postgres"),
+        "user": cfg["user"],
+        "password": cfg["password"],
+        "sslmode": "require",
+        "connect_timeout": 15,
+    }
+    if cfg.get("use_pooler"):
+        connect_kwargs["prepare_threshold"] = None
+
     last_err = None
     for attempt in range(4):
         try:
-            return psycopg.connect(
-                host=cfg["host"],
-                port=int(cfg.get("port", 5432)),
-                dbname=cfg.get("dbname", "postgres"),
-                user=cfg["user"],
-                password=cfg["password"],
-                sslmode="require",
-                connect_timeout=15,
-            )
+            return psycopg.connect(**connect_kwargs)
         except Exception as exc:
             last_err = exc
             if attempt < 3:
