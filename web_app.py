@@ -6,7 +6,7 @@ import socket
 import time
 from datetime import datetime, timedelta
 
-from flask import Flask, Response, jsonify, render_template_string, request, session
+from flask import Flask, Response, jsonify, render_template_string, request, send_from_directory, session
 
 from bed_linen_logic import (
     adjust_linen_stock,
@@ -38,6 +38,7 @@ from web_logic import (
 )
 
 PORT = int(os.environ.get("WEB_PORT", "8080"))
+ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "branding", "icons")
 if os.environ.get("VERCEL_GIT_COMMIT_SHA"):
     APP_VERSION = os.environ["VERCEL_GIT_COMMIT_SHA"][:12]
 else:
@@ -123,11 +124,15 @@ PAGE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Inventory">
+  <meta name="apple-mobile-web-app-title" content="Momentum Inventory">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta name="app-version" content="{{ app_version }}">
   <title>Momentum Inventory</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v={{ app_version }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png?v={{ app_version }}">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{ app_version }}">
+  <link rel="apple-touch-icon-precomposed" href="/apple-touch-icon-precomposed.png?v={{ app_version }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root {
@@ -2120,6 +2125,27 @@ PAGE = """
 @app.route("/")
 def index():
     return render_template_string(PAGE, app_version=APP_VERSION)
+
+
+@app.route("/favicon.ico")
+def favicon_ico():
+    return send_from_directory(ICON_DIR, "favicon-32x32.png", mimetype="image/png")
+
+
+@app.route("/favicon-32x32.png")
+def favicon_png():
+    return send_from_directory(ICON_DIR, "favicon-32x32.png", mimetype="image/png")
+
+
+@app.route("/icon-192x192.png")
+def icon_192():
+    return send_from_directory(ICON_DIR, "icon-192x192.png", mimetype="image/png")
+
+
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+def apple_touch_icon():
+    return send_from_directory(ICON_DIR, "apple-touch-icon.png", mimetype="image/png")
 
 
 @app.route("/api/auth/status")
