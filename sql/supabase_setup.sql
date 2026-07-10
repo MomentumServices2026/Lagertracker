@@ -1,7 +1,8 @@
 select now();
 
 create table if not exists public.sections (
-  name text primary key
+  name text primary key,
+  sort_order integer
 );
 
 create table if not exists public.products (

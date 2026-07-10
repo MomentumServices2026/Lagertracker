@@ -99,6 +99,43 @@ def _close_conn(conn):
         conn.close()
 
 
+_SECTIONS_ORDER_SQL = "ORDER BY COALESCE(sort_order, 9999), name"
+
+
+def _invalidate_sections_cache():
+    entry = _cache["sections"]
+    entry["data"] = None
+    entry["ts"] = 0.0
+    entry["key"] = None
+
+
+def _ensure_sections_sort_order(conn):
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE public.sections ADD COLUMN IF NOT EXISTS sort_order INTEGER"
+            )
+            cur.execute("SELECT COUNT(*) FROM public.sections WHERE sort_order IS NULL")
+            if cur.fetchone()[0]:
+                cur.execute("""
+                    UPDATE public.sections AS s
+                    SET sort_order = ranked.rn
+                    FROM (
+                        SELECT name, ROW_NUMBER() OVER (ORDER BY name) * 10 AS rn
+                        FROM public.sections
+                    ) AS ranked
+                    WHERE s.name = ranked.name AND s.sort_order IS NULL
+                """)
+    finally:
+        conn.autocommit = False
+
+
+def _fetch_section_names(cur):
+    cur.execute(f"SELECT name FROM sections {_SECTIONS_ORDER_SQL}")
+    return [r[0] for r in cur.fetchall()] or ["General"]
+
+
 def is_authenticated():
     return session.get("authenticated") is True
 
@@ -445,6 +482,30 @@ PAGE = """
       padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); cursor: pointer;
       touch-action: manipulation;
     }
+    .section-order-row {
+      display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px;
+      scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .section-order-item {
+      flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; background: var(--surface-alt);
+      border: 1px solid var(--border); border-radius: 12px;
+      cursor: grab; user-select: none; touch-action: none;
+      transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+    }
+    .section-order-item.dragging {
+      cursor: grabbing; opacity: 0.92; box-shadow: var(--shadow);
+      transform: scale(1.03); z-index: 2; border-color: var(--accent); background: var(--surface);
+    }
+    .section-order-item.drag-over { border-color: var(--accent); }
+    .section-grip { color: var(--muted); font-size: 1rem; line-height: 1; letter-spacing: -2px; }
+    .section-label { font-size: 0.88rem; font-weight: 600; color: var(--primary); white-space: nowrap; }
+    .section-del {
+      border: none; background: transparent; color: var(--muted);
+      font-size: 1.2rem; line-height: 1; padding: 2px 4px; cursor: pointer;
+      border-radius: 6px; touch-action: manipulation;
+    }
     .lock-screen {
       display: none; position: fixed; inset: 0; z-index: 10000;
       background: #f2f2f7; align-items: center; justify-content: center;
@@ -499,6 +560,7 @@ PAGE = """
       .card:hover { box-shadow: var(--shadow); }
       .export-tile:hover { box-shadow: var(--shadow); border-color: #c5d3e0; }
       .back-btn:hover { background: var(--surface-alt); }
+      .section-del:hover { color: var(--red); background: #fee2e2; }
       .header-refresh:hover { background: rgba(255,255,255,0.28); }
       nav button:hover { color: var(--primary); }
       th.sortable:hover { color: var(--primary); }
@@ -717,7 +779,8 @@ PAGE = """
     </div>
     <div class="chart-card">
       <h3>Sections</h3>
-      <div id="sectionList"></div>
+      <p class="chart-sub">Drag to reorder · order applies to Stock section chips</p>
+      <div id="sectionOrderList" class="section-order-row" role="list" aria-label="Section order"></div>
     </div>
     <p class="more-section-label">Reports</p>
     <button type="button" class="export-tile" onclick="exportReport()">
@@ -1357,10 +1420,19 @@ PAGE = """
       ).join('');
     }
 
+    function sectionSortKeys(keys) {
+      return keys.sort((a, b) => {
+        const ia = sections.indexOf(a);
+        const ib = sections.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b);
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
+
     function renderChips() {
-      const otherSections = sections.filter(s => s !== 'General');
-      const chips = ['General', ...otherSections];
-      document.getElementById('sectionChips').innerHTML = chips.map(s =>
+      document.getElementById('sectionChips').innerHTML = sections.map(s =>
         `<button type="button" class="chip ${s===activeSection?'active':''}" data-section="${esc(s)}" onclick="filterSection(this.dataset.section)">${esc(s)}</button>`
       ).join('');
     }
@@ -1398,7 +1470,7 @@ PAGE = """
       });
 
       let html = '';
-      Object.keys(grouped).sort().forEach(sec => {
+      sectionSortKeys(Object.keys(grouped)).forEach(sec => {
         if (isGeneralFilter()) html += `<div class="section-title">${esc(sec)}</div>`;
         grouped[sec].forEach(p => {
           const low = p.stock <= p.min_stock;
@@ -1964,12 +2036,133 @@ PAGE = """
       try {
         const data = await api('/api/sections');
         sections = data.sections;
-        document.getElementById('sectionList').innerHTML = sections.map(s =>
-          `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
-            <span>${s}</span>
-            ${s!=='General'?`<button class="btn btn-ghost" style="flex:0;padding:6px 12px" onclick="deleteSection('${s}')">Delete</button>`:''}
-          </div>`).join('');
+        renderSectionOrder();
+        if (activeScreen === 'stock') {
+          renderChips();
+          fillSectionSelects();
+        }
       } catch (e) { toast(e.message); }
+    }
+
+    function renderSectionOrder() {
+      const el = document.getElementById('sectionOrderList');
+      if (!el) return;
+      el.innerHTML = sections.map(s =>
+        `<div class="section-order-item" role="listitem" data-section="${esc(s)}" draggable="true">
+          <span class="section-grip" aria-hidden="true">⠿</span>
+          <span class="section-label">${esc(s)}</span>
+          ${s !== 'General' ? `<button type="button" class="section-del" data-delete-section="${esc(s)}" aria-label="Delete ${esc(s)}">×</button>` : ''}
+        </div>`
+      ).join('');
+    }
+
+    let sectionDragItem = null;
+
+    function initSectionDragDrop() {
+      const container = document.getElementById('sectionOrderList');
+      if (!container || container.dataset.dragReady) return;
+      container.dataset.dragReady = '1';
+
+      container.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-delete-section]');
+        if (!btn) return;
+        e.stopPropagation();
+        deleteSection(btn.dataset.deleteSection);
+      });
+
+      container.addEventListener('dragstart', (e) => {
+        const item = e.target.closest('.section-order-item');
+        if (!item || e.target.closest('.section-del')) {
+          e.preventDefault();
+          return;
+        }
+        sectionDragItem = item;
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', item.dataset.section);
+      });
+
+      container.addEventListener('dragend', () => {
+        if (sectionDragItem) sectionDragItem.classList.remove('dragging');
+        container.querySelectorAll('.section-order-item').forEach(i => i.classList.remove('drag-over'));
+        saveSectionOrder(container);
+        sectionDragItem = null;
+      });
+
+      container.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const item = e.target.closest('.section-order-item');
+        if (!item || !sectionDragItem || item === sectionDragItem) return;
+        item.classList.add('drag-over');
+        const rect = item.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        if (e.clientX < mid) container.insertBefore(sectionDragItem, item);
+        else container.insertBefore(sectionDragItem, item.nextSibling);
+      });
+
+      container.addEventListener('dragleave', (e) => {
+        const item = e.target.closest('.section-order-item');
+        if (item) item.classList.remove('drag-over');
+      });
+
+      container.addEventListener('pointerdown', (e) => {
+        const item = e.target.closest('.section-order-item');
+        if (!item || e.target.closest('.section-del') || e.pointerType === 'mouse') return;
+        sectionDragItem = item;
+        item.classList.add('dragging');
+        item.setPointerCapture(e.pointerId);
+      });
+
+      container.addEventListener('pointermove', (e) => {
+        if (!sectionDragItem || !sectionDragItem.classList.contains('dragging')) return;
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const target = under?.closest('.section-order-item');
+        if (!target || target === sectionDragItem || !container.contains(target)) return;
+        const rect = target.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        if (e.clientX < mid) container.insertBefore(sectionDragItem, target);
+        else container.insertBefore(sectionDragItem, target.nextSibling);
+      });
+
+      container.addEventListener('pointerup', (e) => {
+        if (!sectionDragItem) return;
+        if (sectionDragItem.classList.contains('dragging')) {
+          sectionDragItem.classList.remove('dragging');
+          try { sectionDragItem.releasePointerCapture(e.pointerId); } catch (_) {}
+          saveSectionOrder(container);
+        }
+        sectionDragItem = null;
+      });
+
+      container.addEventListener('pointercancel', () => {
+        if (sectionDragItem) sectionDragItem.classList.remove('dragging');
+        sectionDragItem = null;
+      });
+    }
+
+    async function saveSectionOrder(container) {
+      const order = [...container.querySelectorAll('.section-order-item')].map(el => el.dataset.section);
+      if (order.join('|') === sections.join('|')) return;
+      const previous = sections.slice();
+      sections = order;
+      try {
+        const data = await api('/api/sections/reorder', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({order})
+        });
+        sections = data.sections || order;
+        toast('Section order saved');
+        if (activeScreen === 'stock') {
+          renderChips();
+          renderProducts();
+        }
+        fillSectionSelects();
+      } catch (e) {
+        sections = previous;
+        toast(e.message);
+        renderSectionOrder();
+      }
     }
 
     async function addSection() {
@@ -2560,6 +2753,7 @@ PAGE = """
 
     initAuth().then(() => {
       if (!document.body.classList.contains('locked')) loadProducts();
+      initSectionDragDrop();
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeAllOverlays();
@@ -3107,9 +3301,9 @@ def api_products():
     conn = None
     try:
         conn = get_conn()
+        _ensure_sections_sort_order(conn)
         with conn.cursor() as cur:
-            cur.execute("SELECT name FROM sections ORDER BY name")
-            sections = [r[0] for r in cur.fetchall()] or ["General"]
+            sections = _fetch_section_names(cur)
             cur.execute("""
                 SELECT sku, name, brand, stock, min_stock, status, COALESCE(group_name, 'General')
                 FROM products ORDER BY COALESCE(group_name, 'General'), name
@@ -3338,14 +3532,56 @@ def api_sections():
     conn = None
     try:
         conn = get_conn()
+        _ensure_sections_sort_order(conn)
         with conn.cursor() as cur:
-            cur.execute("SELECT name FROM sections ORDER BY name")
-            sections = [r[0] for r in cur.fetchall()] or ["General"]
+            sections = _fetch_section_names(cur)
         payload = {"sections": sections}
         _set_cache("sections", "default", payload)
         return jsonify(payload)
     except Exception as e:
         return _api_error("api_sections", e)
+    finally:
+        _close_conn(conn)
+
+
+@app.route("/api/sections/reorder", methods=["PUT"])
+def api_reorder_sections():
+    data = request.get_json(silent=True) or {}
+    order = data.get("order")
+    if not isinstance(order, list) or not order:
+        return jsonify({"error": "order array required"}), 400
+
+    cleaned = []
+    for name in order:
+        if not isinstance(name, str):
+            return jsonify({"error": "order must contain section names"}), 400
+        name = name.strip()
+        if not name:
+            return jsonify({"error": "order must contain section names"}), 400
+        cleaned.append(name)
+
+    if len(cleaned) != len(set(cleaned)):
+        return jsonify({"error": "order must not contain duplicates"}), 400
+
+    conn = None
+    try:
+        conn = get_conn()
+        _ensure_sections_sort_order(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM sections")
+            existing = {r[0] for r in cur.fetchall()}
+            if set(cleaned) != existing:
+                return jsonify({"error": "order must include every section exactly once"}), 400
+            for idx, name in enumerate(cleaned):
+                cur.execute(
+                    "UPDATE sections SET sort_order = %s WHERE name = %s",
+                    ((idx + 1) * 10, name),
+                )
+        conn.commit()
+        _invalidate_sections_cache()
+        return jsonify({"ok": True, "sections": cleaned})
+    except Exception as e:
+        return _api_error("api_reorder_sections", e)
     finally:
         _close_conn(conn)
 
@@ -3359,11 +3595,16 @@ def api_add_section():
     conn = None
     try:
         conn = get_conn()
+        _ensure_sections_sort_order(conn)
         with conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 FROM sections")
+            next_order = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO sections(name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (name,)
+                "INSERT INTO sections(name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
+                (name, next_order),
             )
         conn.commit()
+        _invalidate_sections_cache()
         return jsonify({"ok": True})
     except Exception as e:
         return _api_error("api_add_section", e)
@@ -3384,6 +3625,7 @@ def api_delete_section(name):
             )
             cur.execute("DELETE FROM sections WHERE name=%s", (name,))
         conn.commit()
+        _invalidate_sections_cache()
         return jsonify({"ok": True})
     except Exception as e:
         return _api_error("api_delete_section", e)
