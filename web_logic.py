@@ -71,21 +71,45 @@ def _project_ref(host):
     return os.environ.get("SUPABASE_PROJECT_REF", "")
 
 
-def _vercel_pooler_config(cfg):
-    """Vercel serverless cannot use Supabase direct IPv6 — use the transaction pooler."""
-    if os.environ.get("VERCEL") != "1" and os.environ.get("SUPABASE_USE_POOLER") != "1":
+def _pooler_config(cfg):
+    """Supabase direct db.* hosts use IPv6; serverless needs the transaction pooler (IPv4)."""
+    if os.environ.get("SUPABASE_USE_DIRECT") == "1":
         return cfg
 
-    direct_host = cfg["host"]
+    direct_host = cfg.get("host", "")
+
+    if ".pooler.supabase.com" in direct_host:
+        user = cfg.get("user", "postgres")
+        ref = os.environ.get("SUPABASE_PROJECT_REF", "") or _project_ref(
+            os.environ.get("SUPABASE_DB_HOST", "")
+        )
+        if user == "postgres" and ref:
+            user = f"postgres.{ref}"
+        return {
+            **cfg,
+            "user": user,
+            "port": os.environ.get("SUPABASE_DB_POOLER_PORT", "6543"),
+            "use_pooler": True,
+        }
+
+    use_pooler = (
+        os.environ.get("SUPABASE_USE_POOLER") == "1"
+        or os.environ.get("VERCEL") == "1"
+        or bool(os.environ.get("VERCEL_ENV"))
+        or (
+            direct_host.startswith("db.")
+            and direct_host.endswith(".supabase.co")
+        )
+    )
+    if not use_pooler:
+        return cfg
+
     pooler_host = os.environ.get("SUPABASE_DB_POOLER_HOST", "")
-    if not pooler_host and direct_host.startswith("db.") and direct_host.endswith(".supabase.co"):
+    if not pooler_host:
         pooler_host = os.environ.get(
             "SUPABASE_DB_POOLER_REGION",
             "aws-0-eu-central-1.pooler.supabase.com",
         )
-
-    if not pooler_host:
-        return cfg
 
     user = cfg.get("user", "postgres")
     ref = _project_ref(direct_host)
@@ -105,7 +129,7 @@ def get_conn():
     if psycopg is None:
         raise RuntimeError("psycopg is not installed")
 
-    cfg = _vercel_pooler_config(load_config())
+    cfg = _pooler_config(load_config())
     connect_kwargs = {
         "host": cfg["host"],
         "port": int(cfg.get("port", 5432)),
