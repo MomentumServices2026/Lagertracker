@@ -131,6 +131,7 @@ PAGE = """
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Momentum Inventory">
+  <meta name="theme-color" content="#0c3b5d">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta name="app-version" content="{{ app_version }}">
@@ -146,15 +147,26 @@ PAGE = """
       --primary: #0c3b5d; --accent: #146b8a; --text: #102a43;
       --muted: #486581; --border: #d9e2ec;
       --green: #16a34a; --red: #ef4444; --amber: #f59e0b;
-      --nav-h: 64px;
+      --nav-h: 64px; --header-h: 68px;
+      --content-max: 720px; --content-wide: 1100px;
+      --radius: 14px; --shadow: 0 8px 28px rgba(16, 42, 67, 0.08);
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { color-scheme: light; scroll-behavior: smooth; }
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg); color: var(--text); padding-bottom: calc(var(--nav-h) + 16px); }
+      background: var(--bg); color: var(--text);
+      padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 16px);
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px); }
+    body:has(.overlay.open) { overflow: hidden; }
     header {
-      background: var(--primary); color: #fff; padding: 14px 18px;
+      background: var(--primary); color: #fff;
+      padding: 14px 18px max(14px, env(safe-area-inset-top, 0px));
       position: sticky; top: 0; z-index: 20;
+    }
+    .header-inner {
       display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      max-width: var(--content-max); margin: 0 auto; width: 100%;
     }
     header .header-text {
       flex: 1; min-width: 0;
@@ -168,15 +180,29 @@ PAGE = """
     .header-refresh {
       width: 44px; height: 44px; border: none; border-radius: 12px; flex-shrink: 0;
       background: rgba(255,255,255,0.18); color: #fff; font-size: 1.35rem;
-      cursor: pointer; touch-action: manipulation;
+      cursor: pointer; touch-action: manipulation; transition: background 0.15s, transform 0.15s;
     }
     .header-refresh:active { background: rgba(255,255,255,0.32); }
-    .screen { display: none; padding: 12px 14px 8px; }
+    .header-refresh.spinning { animation: spin 0.7s linear infinite; pointer-events: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .screen { display: none; padding: 12px 14px 8px; max-width: var(--content-max); margin: 0 auto; }
     .screen.active { display: block; }
+    #screen-analytics, #screen-forecast { max-width: var(--content-wide); }
+    .screen-sticky-head {
+      position: sticky;
+      top: calc(var(--header-h) + env(safe-area-inset-top, 0px) - 1px);
+      z-index: 15; background: var(--bg); padding-bottom: 6px; margin-bottom: 6px;
+    }
     .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
     .toolbar input, .form input, .form select {
       width: 100%; padding: 11px 12px; border: 1px solid var(--border);
       border-radius: 10px; font-size: 16px; background: var(--surface);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .toolbar input:focus, .form input:focus, .form select:focus, .move-section select:focus,
+    .activity-filters select:focus, .year-select select:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(20, 107, 138, 0.18);
     }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
     .stat, .kpi {
@@ -185,10 +211,16 @@ PAGE = """
     }
     .stat strong, .kpi strong { display: block; font-size: 1.3rem; color: var(--primary); }
     .stat span, .kpi span { font-size: 0.72rem; color: var(--muted); }
-    .chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; }
+    .chip-row {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px;
+      scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; -ms-overflow-style: none;
+    }
+    .chip-row::-webkit-scrollbar { display: none; }
     .chip {
       flex-shrink: 0; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border);
       background: var(--surface); font-size: 0.85rem; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
     .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
     .section-title {
@@ -198,6 +230,7 @@ PAGE = """
     .card {
       background: var(--surface); border-radius: 14px; padding: 14px;
       margin-bottom: 8px; border: 1px solid var(--border);
+      transition: box-shadow 0.15s, transform 0.15s;
     }
     .card-tap { cursor: pointer; }
     .card.low { border-left: 4px solid var(--red); }
@@ -229,7 +262,12 @@ PAGE = """
     .btn {
       flex: 1; border: none; border-radius: 10px; padding: 12px;
       font-size: 1rem; font-weight: 600; cursor: pointer;
-      touch-action: manipulation;
+      touch-action: manipulation; transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn:focus-visible, .chip:focus-visible, .back-btn:focus-visible,
+    .export-tile:focus-visible, nav button:focus-visible, .header-refresh:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
     }
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-green { background: var(--green); color: #fff; }
@@ -322,11 +360,25 @@ PAGE = """
     .chart-wrap { position: relative; height: 220px; }
     .chart-wrap.tall { height: 260px; }
     .chart-wrap.movers { height: 300px; }
-    .table-wrap { overflow-x: auto; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-wrap.table-scroll thead th {
+      position: sticky; top: 0; background: var(--surface); z-index: 1;
+      box-shadow: 0 1px 0 var(--border);
+    }
     table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid var(--border); }
     th { color: var(--muted); font-weight: 600; }
-    .empty { text-align: center; padding: 40px 16px; color: var(--muted); }
+    .empty {
+      text-align: center; padding: 40px 16px; color: var(--muted);
+      background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius);
+    }
+    .list-panel { position: relative; min-height: 48px; transition: opacity 0.15s; }
+    .list-panel.is-loading { opacity: 0.55; pointer-events: none; }
+    .list-panel.is-loading::after {
+      content: ''; position: absolute; top: 28px; left: 50%; width: 28px; height: 28px;
+      margin-left: -14px; border: 2px solid var(--border); border-top-color: var(--primary);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
     .info-box {
       background: var(--surface-alt); border-radius: 12px; padding: 12px;
       font-size: 0.85rem; color: var(--muted); line-height: 1.5; margin-bottom: 12px;
@@ -335,23 +387,28 @@ PAGE = """
       position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
       background: var(--surface); border-top: 1px solid var(--border);
       display: grid; grid-template-columns: repeat(5, 1fr); z-index: 30;
-      padding-bottom: env(safe-area-inset-bottom);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      max-width: var(--content-max); margin: 0 auto;
     }
     nav button {
       border: none; background: none; padding: 8px 4px; font-size: 0.65rem;
       color: var(--muted); cursor: pointer; display: flex; flex-direction: column;
-      align-items: center; gap: 3px;
+      align-items: center; justify-content: center; gap: 3px; min-height: 48px;
+      transition: color 0.15s;
     }
     nav button .ico { font-size: 1.2rem; }
     nav button.active { color: var(--primary); font-weight: 700; }
     .overlay {
       display: none; position: fixed; inset: 0; background: rgba(16,42,67,0.45);
       z-index: 40; align-items: flex-end; justify-content: center;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+        env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     }
     .overlay.open { display: flex; }
     .sheet {
       background: var(--surface); width: 100%; max-height: 88vh; overflow-y: auto;
-      border-radius: 18px 18px 0 0; padding: 18px 16px 24px;
+      border-radius: 18px 18px 0 0; padding: 18px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+      -webkit-overflow-scrolling: touch;
     }
     .sheet h2 { margin: 0 0 14px; font-size: 1.1rem; color: var(--primary); }
     .sheet .handle {
@@ -370,9 +427,14 @@ PAGE = """
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       width: 100%; padding: 20px 16px; margin-top: 12px; border: 1px solid var(--border);
       border-radius: 14px; background: var(--surface); cursor: pointer;
-      touch-action: manipulation;
+      touch-action: manipulation; transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
     }
-    .export-tile:active { background: var(--surface-alt); }
+    .export-tile:active { background: var(--surface-alt); transform: scale(0.99); }
+    .more-section-label {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); margin: 20px 0 4px;
+    }
+    .more-section-label:first-of-type { margin-top: 4px; }
     .export-tile .export-ico { font-size: 2rem; line-height: 1; margin-bottom: 8px; }
     .export-tile .export-label { font-size: 0.95rem; font-weight: 700; color: var(--primary); }
     .export-tile .export-hint {
@@ -433,6 +495,44 @@ PAGE = """
     .lock-key:active { background: #e5e5ea; }
     .lock-key.blank { visibility: hidden; pointer-events: none; box-shadow: none; }
     .lock-key.delete { font-size: 1.5rem; font-weight: 500; }
+    @media (hover: hover) and (pointer: fine) {
+      .chip:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+      .card:hover { box-shadow: var(--shadow); }
+      .export-tile:hover { box-shadow: var(--shadow); border-color: #c5d3e0; }
+      .back-btn:hover { background: var(--surface-alt); }
+      .header-refresh:hover { background: rgba(255,255,255,0.28); }
+      nav button:hover { color: var(--primary); }
+      th.sortable:hover { color: var(--primary); }
+    }
+    @media (min-width: 768px) {
+      body { padding-bottom: calc(var(--nav-h) + 24px); }
+      .screen { padding-left: 20px; padding-right: 20px; }
+      nav {
+        left: 50%; transform: translateX(-50%); width: 100%;
+        border-radius: 16px 16px 0 0; box-shadow: 0 -4px 24px rgba(16, 42, 67, 0.08);
+      }
+      nav button { font-size: 0.72rem; }
+      nav button .ico { font-size: 1.35rem; }
+      .overlay { align-items: center; padding: 24px; }
+      .sheet {
+        max-width: 480px; border-radius: 18px; max-height: min(85vh, 720px);
+        box-shadow: var(--shadow);
+      }
+      .table-wrap.table-scroll {
+        max-height: min(68vh, 640px); overflow-y: auto;
+      }
+      .chart-wrap { height: 260px; }
+      .chart-wrap.tall { height: 300px; }
+      .chart-wrap.movers { height: 340px; }
+      .toast { bottom: calc(var(--nav-h) + 20px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -461,25 +561,29 @@ PAGE = """
     </div>
   </div>
   <header>
-    <div class="header-text">
-      <img src="/icon-192x192.png?v={{ app_version }}" alt="" class="header-logo" width="40" height="40">
-      <div class="sub" id="headerSub">Stock overview</div>
+    <div class="header-inner">
+      <div class="header-text">
+        <img src="/icon-192x192.png?v={{ app_version }}" alt="" class="header-logo" width="40" height="40">
+        <div class="sub" id="headerSub">Stock overview</div>
+      </div>
+      <button type="button" class="header-refresh" id="headerRefresh" onclick="hardRefresh()" title="Reload app" aria-label="Reload app">↻</button>
     </div>
-    <button type="button" class="header-refresh" onclick="hardRefresh()" title="Reload app">↻</button>
   </header>
 
   <!-- STOCK -->
   <div id="screen-stock" class="screen active">
-    <div class="toolbar">
-      <input id="searchQ" type="search" placeholder="Search SKU, name, brand…">
+    <div class="screen-sticky-head">
+      <div class="toolbar">
+        <input id="searchQ" type="search" placeholder="Search SKU, name, brand…" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div class="stats">
+        <div class="stat"><strong id="sTotal">–</strong><span>Items</span></div>
+        <div class="stat"><strong id="sLow">–</strong><span>Low</span></div>
+        <div class="stat"><strong id="sUnits">–</strong><span>Units</span></div>
+      </div>
+      <div class="chip-row" id="sectionChips"></div>
     </div>
-    <div class="stats">
-      <div class="stat"><strong id="sTotal">–</strong><span>Items</span></div>
-      <div class="stat"><strong id="sLow">–</strong><span>Low</span></div>
-      <div class="stat"><strong id="sUnits">–</strong><span>Units</span></div>
-    </div>
-    <div class="chip-row" id="sectionChips"></div>
-    <div id="productList"></div>
+    <div id="productList" class="list-panel"></div>
   </div>
 
   <!-- ADD -->
@@ -526,7 +630,7 @@ PAGE = """
     <div class="chart-card" id="jitSection">
       <h3>JIT Reorder Forecast</h3>
       <p class="chart-sub" id="jitSummary">Urgent reorders only · tap column headers to sort</p>
-      <div class="table-wrap"><table id="jitTable"><thead><tr>
+      <div class="table-wrap table-scroll"><table id="jitTable"><thead><tr>
         <th class="sortable" onclick="sortJit('sku')">SKU</th>
         <th class="sortable" onclick="sortJit('name')">Name</th>
         <th class="sortable" onclick="sortJit('current_stock')">Stock</th>
@@ -559,7 +663,7 @@ PAGE = """
       <strong>CRITICAL</strong> = stockout before lead time · <strong>WARNING</strong> = reorder soon
     </div>
     <p class="chart-sub" id="forecastSummary">Loading forecast…</p>
-    <div class="table-wrap">
+    <div class="table-wrap table-scroll">
       <table id="forecastTable"><thead><tr>
         <th class="sortable" onclick="sortForecast('sku')">SKU</th>
         <th class="sortable" onclick="sortForecast('name')">Name</th>
@@ -581,17 +685,19 @@ PAGE = """
     <div class="back-bar">
       <button type="button" class="back-btn" onclick="go('more')">← Back to More</button>
     </div>
-    <div class="toolbar">
-      <input id="linenSearchQ" type="search" placeholder="Search SKU, name, type…">
-      <button type="button" class="btn btn-primary" style="flex:0;padding:10px 14px" onclick="openLinenAdd()">+ Add</button>
+    <div class="screen-sticky-head">
+      <div class="toolbar">
+        <input id="linenSearchQ" type="search" placeholder="Search SKU, name, type…" autocomplete="off" enterkeyhint="search">
+        <button type="button" class="btn btn-primary" style="flex:0;padding:10px 14px" onclick="openLinenAdd()">+ Add</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><strong id="lTotal">–</strong><span>Items</span></div>
+        <div class="stat"><strong id="lLow">–</strong><span>Low</span></div>
+        <div class="stat"><strong id="lUnits">–</strong><span>Units</span></div>
+      </div>
+      <div class="chip-row" id="linenSectionChips"></div>
     </div>
-    <div class="stats">
-      <div class="stat"><strong id="lTotal">–</strong><span>Items</span></div>
-      <div class="stat"><strong id="lLow">–</strong><span>Low</span></div>
-      <div class="stat"><strong id="lUnits">–</strong><span>Units</span></div>
-    </div>
-    <div class="chip-row" id="linenSectionChips"></div>
-    <div id="linenProductList"></div>
+    <div id="linenProductList" class="list-panel"></div>
   </div>
 
   <!-- DINGHY (separate from main stock) -->
@@ -599,17 +705,19 @@ PAGE = """
     <div class="back-bar">
       <button type="button" class="back-btn" onclick="go('more')">← Back to More</button>
     </div>
-    <div class="toolbar">
-      <input id="dinghySearchQ" type="search" placeholder="Search SKU, name, type…">
-      <button type="button" class="btn btn-primary" style="flex:0;padding:10px 14px" onclick="openDinghyAdd()">+ Add</button>
+    <div class="screen-sticky-head">
+      <div class="toolbar">
+        <input id="dinghySearchQ" type="search" placeholder="Search SKU, name, type…" autocomplete="off" enterkeyhint="search">
+        <button type="button" class="btn btn-primary" style="flex:0;padding:10px 14px" onclick="openDinghyAdd()">+ Add</button>
+      </div>
+      <div class="stats">
+        <div class="stat"><strong id="dTotal">–</strong><span>Items</span></div>
+        <div class="stat"><strong id="dLow">–</strong><span>Low</span></div>
+        <div class="stat"><strong id="dUnits">–</strong><span>Units</span></div>
+      </div>
+      <div class="chip-row" id="dinghySectionChips"></div>
     </div>
-    <div class="stats">
-      <div class="stat"><strong id="dTotal">–</strong><span>Items</span></div>
-      <div class="stat"><strong id="dLow">–</strong><span>Low</span></div>
-      <div class="stat"><strong id="dUnits">–</strong><span>Units</span></div>
-    </div>
-    <div class="chip-row" id="dinghySectionChips"></div>
-    <div id="dinghyProductList"></div>
+    <div id="dinghyProductList" class="list-panel"></div>
   </div>
 
   <!-- MORE -->
@@ -623,11 +731,18 @@ PAGE = """
       <h3>Sections</h3>
       <div id="sectionList"></div>
     </div>
+    <p class="more-section-label">Reports</p>
     <button type="button" class="export-tile" onclick="exportReport()">
       <span class="export-ico">📤</span>
       <span class="export-label">Export Report</span>
       <span class="export-hint">PDF · same report as the desktop app</span>
     </button>
+    <button type="button" class="export-tile" onclick="exportAiReport()">
+      <span class="export-ico">🤖</span>
+      <span class="export-label">AI Analytics Report</span>
+      <span class="export-hint">PDF tables · feed to ChatGPT for purchase advice</span>
+    </button>
+    <p class="more-section-label">Separate storage</p>
     <button type="button" class="export-tile" onclick="openLinen()">
       <span class="export-ico">🛏️</span>
       <span class="export-label">Bed Linen Storage</span>
@@ -637,11 +752,6 @@ PAGE = """
       <span class="export-ico">🚤</span>
       <span class="export-label">Dinghy</span>
       <span class="export-hint">Separate tracking — not shown in main Stock</span>
-    </button>
-    <button type="button" class="export-tile" onclick="exportAiReport()">
-      <span class="export-ico">🤖</span>
-      <span class="export-label">AI Analytics Report</span>
-      <span class="export-hint">PDF tables · feed to ChatGPT for purchase advice</span>
     </button>
     <div class="chart-card" style="margin-top:12px">
       <h3>Connect from iPhone</h3>
@@ -782,12 +892,12 @@ PAGE = """
     </div>
   </div>
 
-  <nav>
-    <button class="active" data-screen="stock" onclick="go('stock')"><span class="ico">📦</span>Stock</button>
-    <button data-screen="add" onclick="go('add')"><span class="ico">➕</span>Add</button>
-    <button data-screen="analytics" onclick="go('analytics')"><span class="ico">📊</span>Analytics</button>
-    <button data-screen="forecast" onclick="go('forecast')"><span class="ico">🔮</span>Forecast</button>
-    <button data-screen="more" onclick="go('more')"><span class="ico">⚙️</span>More</button>
+  <nav aria-label="Main navigation">
+    <button class="active" data-screen="stock" onclick="go('stock')" aria-label="Stock"><span class="ico">📦</span>Stock</button>
+    <button data-screen="add" onclick="go('add')" aria-label="Add product"><span class="ico">➕</span>Add</button>
+    <button data-screen="analytics" onclick="go('analytics')" aria-label="Analytics"><span class="ico">📊</span>Analytics</button>
+    <button data-screen="forecast" onclick="go('forecast')" aria-label="Forecast"><span class="ico">🔮</span>Forecast</button>
+    <button data-screen="more" onclick="go('more')" aria-label="More settings"><span class="ico">⚙️</span>More</button>
   </nav>
   <div class="toast" id="toast"></div>
 
@@ -1161,8 +1271,24 @@ PAGE = """
     }
 
     function hardRefresh() {
+      const btn = document.getElementById('headerRefresh');
+      if (btn) btn.classList.add('spinning');
       const base = (window.location.pathname || '/').split('?')[0];
       window.location.replace(base + '?v=' + Date.now());
+    }
+
+    function setListLoading(id, loading) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('is-loading', loading);
+    }
+
+    function closeAllOverlays() {
+      if (document.getElementById('productSheet').classList.contains('open')) closeSheet();
+      if (document.getElementById('linenSheet').classList.contains('open')) closeLinenSheet();
+      if (document.getElementById('linenAddSheet').classList.contains('open')) closeLinenAdd();
+      if (document.getElementById('dinghySheet').classList.contains('open')) closeDinghySheet();
+      if (document.getElementById('dinghyAddSheet').classList.contains('open')) closeDinghyAdd();
+      if (document.getElementById('activitySheet').classList.contains('open')) closeActivitySheet();
     }
 
     const subtitles = {
@@ -1185,9 +1311,13 @@ PAGE = """
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       document.getElementById('screen-' + screen).classList.add('active');
       document.querySelectorAll('nav button').forEach(b => {
-        b.classList.toggle('active', b.dataset.screen === screen);
+        const isActive = b.dataset.screen === screen;
+        b.classList.toggle('active', isActive);
+        if (isActive) b.setAttribute('aria-current', 'page');
+        else b.removeAttribute('aria-current');
       });
       document.getElementById('headerSub').textContent = subtitles[screen] || '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       if (screen === 'stock') loadProducts();
       if (screen === 'add') prepAddForm();
       if (screen === 'analytics') loadAnalytics();
@@ -1212,6 +1342,7 @@ PAGE = """
     }
 
     async function loadProducts() {
+      setListLoading('productList', true);
       try {
         const data = await api('/api/products');
         products = data.products;
@@ -1220,6 +1351,7 @@ PAGE = """
         renderProducts();
         fillSectionSelects();
       } catch (e) { toast(e.message); }
+      finally { setListLoading('productList', false); }
     }
 
     function fillSectionSelects() {
@@ -1872,6 +2004,7 @@ PAGE = """
 
     // -------- Bed Linen (separate storage) --------
     async function loadLinenProducts() {
+      setListLoading('linenProductList', true);
       try {
         const data = await api('/api/linen/products');
         linenProducts = data.products;
@@ -1880,6 +2013,7 @@ PAGE = """
         renderLinenProducts();
         fillLinenSectionSelects();
       } catch (e) { toast(e.message); }
+      finally { setListLoading('linenProductList', false); }
     }
 
     function fillLinenSectionSelects() {
@@ -2115,6 +2249,7 @@ PAGE = """
 
     // -------- Dinghy (separate storage) --------
     async function loadDinghyProducts() {
+      setListLoading('dinghyProductList', true);
       try {
         const data = await api('/api/dinghy/products');
         dinghyProducts = data.products;
@@ -2123,6 +2258,7 @@ PAGE = """
         renderDinghyProducts();
         fillDinghySectionSelects();
       } catch (e) { toast(e.message); }
+      finally { setListLoading('dinghyProductList', false); }
     }
 
     function fillDinghySectionSelects() {
@@ -2436,6 +2572,9 @@ PAGE = """
 
     initAuth().then(() => {
       if (!document.body.classList.contains('locked')) loadProducts();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAllOverlays();
     });
     setInterval(() => {
       if (document.body.classList.contains('locked')) return;
