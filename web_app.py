@@ -150,9 +150,15 @@ PAGE = """
       position: sticky; top: 0; z-index: 20;
       display: flex; justify-content: space-between; align-items: center; gap: 12px;
     }
-    header .header-text { flex: 1; min-width: 0; }
-    header h1 { margin: 0; font-size: 1.2rem; font-weight: 700; }
-    header .sub { margin: 2px 0 0; font-size: 0.8rem; opacity: 0.8; }
+    header .header-text {
+      flex: 1; min-width: 0;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .header-logo {
+      width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+      display: block; background: #fff;
+    }
+    header .sub { margin: 0; font-size: 0.85rem; opacity: 0.9; line-height: 1.2; }
     .header-refresh {
       width: 44px; height: 44px; border: none; border-radius: 12px; flex-shrink: 0;
       background: rgba(255,255,255,0.18); color: #fff; font-size: 1.35rem;
@@ -450,7 +456,7 @@ PAGE = """
   </div>
   <header>
     <div class="header-text">
-      <h1>Momentum Inventory</h1>
+      <img src="/icon-192x192.png?v={{ app_version }}" alt="" class="header-logo" width="40" height="40">
       <div class="sub" id="headerSub">Stock overview</div>
     </div>
     <button type="button" class="header-refresh" onclick="hardRefresh()" title="Reload app">↻</button>
