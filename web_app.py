@@ -14,6 +14,12 @@ from bed_linen_logic import (
     generate_next_linen_sku,
     list_linen_products,
 )
+from dinghy_logic import (
+    adjust_dinghy_stock,
+    ensure_dinghy_schema,
+    generate_next_dinghy_sku,
+    list_dinghy_products,
+)
 from jit_engine import calculate_jit_forecast
 from security_config import (
     WEB_PASSCODE,
@@ -588,6 +594,24 @@ PAGE = """
     <div id="linenProductList"></div>
   </div>
 
+  <!-- DINGHY (separate from main stock) -->
+  <div id="screen-dinghy" class="screen">
+    <div class="back-bar">
+      <button type="button" class="back-btn" onclick="go('more')">← Back to More</button>
+    </div>
+    <div class="toolbar">
+      <input id="dinghySearchQ" type="search" placeholder="Search SKU, name, type…">
+      <button type="button" class="btn btn-primary" style="flex:0;padding:10px 14px" onclick="openDinghyAdd()">+ Add</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><strong id="dTotal">–</strong><span>Items</span></div>
+      <div class="stat"><strong id="dLow">–</strong><span>Low</span></div>
+      <div class="stat"><strong id="dUnits">–</strong><span>Units</span></div>
+    </div>
+    <div class="chip-row" id="dinghySectionChips"></div>
+    <div id="dinghyProductList"></div>
+  </div>
+
   <!-- MORE -->
   <div id="screen-more" class="screen">
     <div class="form" style="margin-bottom:12px">
@@ -607,6 +631,11 @@ PAGE = """
     <button type="button" class="export-tile" onclick="openLinen()">
       <span class="export-ico">🛏️</span>
       <span class="export-label">Bed Linen Storage</span>
+      <span class="export-hint">Separate tracking — not shown in main Stock</span>
+    </button>
+    <button type="button" class="export-tile" onclick="openDinghy()">
+      <span class="export-ico">🚤</span>
+      <span class="export-label">Dinghy</span>
       <span class="export-hint">Separate tracking — not shown in main Stock</span>
     </button>
     <button type="button" class="export-tile" onclick="exportAiReport()">
@@ -671,6 +700,51 @@ PAGE = """
     </div>
   </div>
 
+  <!-- DINGHY PRODUCT SHEET -->
+  <div class="overlay" id="dinghySheet" onclick="if(event.target===this)closeDinghySheet()">
+    <div class="sheet">
+      <div class="handle"></div>
+      <h2 id="dinghySheetTitle">Dinghy Item</h2>
+      <div class="form">
+        <label>Name</label><input id="dinghyEditName">
+        <label>Type / Brand</label><input id="dinghyEditBrand">
+        <label>Stock</label><input id="dinghyEditStock" type="number">
+        <label>Min Stock</label><input id="dinghyEditMin" type="number">
+        <label>Status</label>
+        <select id="dinghyEditStatus"><option value="Active">Active</option><option value="Old">Old</option></select>
+        <label>Section</label><select id="dinghyEditSection"></select>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn btn-green" onclick="dinghySheetStock(1)">+ 1</button>
+        <button class="btn btn-red" onclick="dinghySheetStock(-1)">− 1</button>
+      </div>
+      <div class="actions">
+        <button class="btn btn-red" id="dinghyToggleOldBtn" onclick="toggleDinghyOld()">Mark Old</button>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="saveDinghyProduct()">Save Changes</button>
+        <button class="btn btn-red" onclick="deleteDinghyProduct()">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DINGHY ADD SHEET -->
+  <div class="overlay" id="dinghyAddSheet" onclick="if(event.target===this)closeDinghyAdd()">
+    <div class="sheet">
+      <div class="handle"></div>
+      <h2>Add Dinghy Item</h2>
+      <div class="form">
+        <label>SKU</label><input id="dinghyAddSku" placeholder="Auto-generated">
+        <label>Name</label><input id="dinghyAddName">
+        <label>Type / Brand</label><input id="dinghyAddBrand">
+        <label>Stock</label><input id="dinghyAddStock" type="number" value="0">
+        <label>Min Stock</label><input id="dinghyAddMin" type="number" value="0">
+        <label>Section</label><select id="dinghyAddSection"></select>
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="addDinghyProduct()">Add Item</button>
+    </div>
+  </div>
+
   <!-- PRODUCT SHEET -->
   <div class="overlay" id="activitySheet" onclick="if(event.target===this)closeActivitySheet()">
     <div class="sheet">
@@ -720,6 +794,7 @@ PAGE = """
   <script>
     let products = [], sections = [], activeSection = 'General', activeSku = null;
     let linenProducts = [], linenSections = [], linenActiveSection = 'General', linenActiveSku = null;
+    let dinghyProducts = [], dinghySections = [], dinghyActiveSection = 'General', dinghyActiveSku = null;
     let charts = {};
     let activityDays = [];
     let cachedActivity = null;
@@ -1092,7 +1167,8 @@ PAGE = """
 
     const subtitles = {
       stock: 'stock overview', add: 'add new product', analytics: 'analytics dashboard',
-      forecast: 'reorder forecast', more: 'sections & settings', linen: 'bed linen storage'
+      forecast: 'reorder forecast', more: 'sections & settings', linen: 'bed linen storage',
+      dinghy: 'dinghy storage'
     };
 
     function toast(msg) {
@@ -1118,9 +1194,11 @@ PAGE = """
       if (screen === 'forecast') loadForecast();
       if (screen === 'more') { loadSections(); loadConnectInfo(); }
       if (screen === 'linen') loadLinenProducts();
+      if (screen === 'dinghy') loadDinghyProducts();
     }
 
     function openLinen() { go('linen'); }
+    function openDinghy() { go('dinghy'); }
 
     async function api(url, opts={}) {
       const res = await fetch(url, {credentials: 'same-origin', ...opts});
@@ -2035,6 +2113,248 @@ PAGE = """
       toast('Item added'); closeLinenAdd(); loadLinenProducts();
     }
 
+    // -------- Dinghy (separate storage) --------
+    async function loadDinghyProducts() {
+      try {
+        const data = await api('/api/dinghy/products');
+        dinghyProducts = data.products;
+        dinghySections = data.sections;
+        renderDinghyChips();
+        renderDinghyProducts();
+        fillDinghySectionSelects();
+      } catch (e) { toast(e.message); }
+    }
+
+    function fillDinghySectionSelects() {
+      ['dinghyAddSection', 'dinghyEditSection'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = dinghySections.map(s => `<option value="${s}">${s}</option>`).join('');
+      });
+    }
+
+    function dinghySectionOptions(current) {
+      const cur = current || 'General';
+      return dinghySections.map(s =>
+        `<option value="${esc(s)}"${s === cur ? ' selected' : ''}>${esc(s)}</option>`
+      ).join('');
+    }
+
+    function renderDinghyChips() {
+      const other = dinghySections.filter(s => s !== 'General');
+      const chips = ['General', ...other];
+      document.getElementById('dinghySectionChips').innerHTML = chips.map(s =>
+        `<button type="button" class="chip ${s===dinghyActiveSection?'active':''}" data-section="${esc(s)}" onclick="filterDinghySection(this.dataset.section)">${esc(s)}</button>`
+      ).join('');
+    }
+
+    function filterDinghySection(s) {
+      dinghyActiveSection = s;
+      renderDinghyChips();
+      renderDinghyProducts();
+    }
+
+    function isDinghyGeneralFilter() { return dinghyActiveSection === 'General'; }
+
+    function renderDinghyProducts() {
+      const q = document.getElementById('dinghySearchQ').value.trim().toLowerCase();
+      let list = dinghyProducts.filter(p => {
+        const section = p.group_name || 'General';
+        if (!isDinghyGeneralFilter() && section !== dinghyActiveSection) return false;
+        if (!q) return true;
+        return [p.sku, p.name, p.brand, section].join(' ').toLowerCase().includes(q);
+      });
+
+      document.getElementById('dTotal').textContent = list.length;
+      document.getElementById('dLow').textContent = list.filter(p => p.stock <= p.min_stock).length;
+      document.getElementById('dUnits').textContent = list.reduce((s, p) => s + p.stock, 0);
+
+      const el = document.getElementById('dinghyProductList');
+      if (!list.length) { el.innerHTML = '<div class="empty">No dinghy items yet. Tap + Add.</div>'; return; }
+
+      const grouped = {};
+      list.forEach(p => {
+        const g = isDinghyGeneralFilter() ? (p.group_name || 'General') : dinghyActiveSection;
+        (grouped[g] = grouped[g] || []).push(p);
+      });
+
+      let html = '';
+      Object.keys(grouped).sort().forEach(sec => {
+        if (isDinghyGeneralFilter()) html += `<div class="section-title">${esc(sec)}</div>`;
+        grouped[sec].forEach(p => {
+          const low = p.stock <= p.min_stock;
+          const old = (p.status || '').toLowerCase() === 'old';
+          const sku = esc(p.sku);
+          html += `<div class="card ${low?'low':''} ${old?'old':''}">
+            <div class="card-tap" data-dinghy-sku="${sku}">
+              <div class="row1">
+                <div class="sku">${sku}${old?'<span class="badge badge-old">OLD</span>':''}</div>
+                <div class="stock ${low?'low':''}">${p.stock}</div>
+              </div>
+              <div>${esc(p.name||'—')}</div>
+              <div class="meta">${esc(p.brand||'—')} · Min ${p.min_stock}${low?' · <strong style="color:var(--red)">Low stock</strong>':''}</div>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn btn-red" data-dinghy-action="minus" data-dinghy-sku="${sku}">− 1</button>
+              <button type="button" class="btn btn-green" data-dinghy-action="plus" data-dinghy-sku="${sku}">+ 1</button>
+            </div>
+            <div class="actions actions-full">
+              <button type="button" class="btn ${old ? 'btn-green' : 'btn-red'}" data-dinghy-action="${old ? 'mark-active' : 'mark-old'}" data-dinghy-sku="${sku}">
+                ${old ? 'Mark Active' : 'Mark Old'}
+              </button>
+            </div>
+            <div class="move-section">
+              <label>Section</label>
+              <select data-dinghy-action="move-section" data-dinghy-sku="${sku}" data-current="${esc(p.group_name||'General')}">
+                ${dinghySectionOptions(p.group_name || 'General')}
+              </select>
+            </div>
+          </div>`;
+        });
+      });
+      el.innerHTML = html;
+    }
+
+    document.getElementById('dinghySearchQ').addEventListener('input', renderDinghyProducts);
+
+    document.getElementById('dinghyProductList').addEventListener('change', async (ev) => {
+      const sel = ev.target.closest('select[data-dinghy-action="move-section"]');
+      if (!sel) return;
+      ev.stopPropagation();
+      const sku = sel.dataset.dinghySku;
+      const section = sel.value;
+      if (section === sel.dataset.current) return;
+      try {
+        await api(`/api/dinghy/products/${encodeURIComponent(sku)}/section`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({group_name: section})
+        });
+        await loadDinghyProducts();
+        toast(`Moved ${sku} to ${section}`);
+      } catch (e) { toast(e.message); }
+    });
+
+    document.getElementById('dinghyProductList').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button[data-dinghy-action]');
+      if (btn) {
+        ev.stopPropagation();
+        const sku = btn.dataset.dinghySku;
+        const action = btn.dataset.dinghyAction;
+        if (action === 'plus') await quickDinghyStock(sku, 1);
+        else if (action === 'minus') await quickDinghyStock(sku, -1);
+        else if (action === 'mark-old') await setDinghyProductStatus(sku, 'Old');
+        else if (action === 'mark-active') await setDinghyProductStatus(sku, 'Active');
+        return;
+      }
+      const tap = ev.target.closest('[data-dinghy-sku]');
+      if (tap && !ev.target.closest('button') && !ev.target.closest('select')) openDinghySheet(tap.dataset.dinghySku);
+    });
+
+    async function quickDinghyStock(sku, change) {
+      try {
+        const data = await api('/api/dinghy/stock', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({sku, change})
+        });
+        const idx = dinghyProducts.findIndex(p => p.sku === sku);
+        if (idx >= 0) dinghyProducts[idx].stock = data.stock;
+        renderDinghyProducts();
+      } catch (e) { toast(e.message); }
+    }
+
+    async function setDinghyProductStatus(sku, status) {
+      await api(`/api/dinghy/products/${encodeURIComponent(sku)}/status`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({status})
+      });
+      await loadDinghyProducts();
+      toast(status === 'Old' ? 'Marked Old' : 'Marked Active');
+    }
+
+    function openDinghySheet(sku) {
+      dinghyActiveSku = sku;
+      const p = dinghyProducts.find(x => x.sku === sku);
+      if (!p) return;
+      document.getElementById('dinghySheetTitle').textContent = sku;
+      document.getElementById('dinghyEditName').value = p.name || '';
+      document.getElementById('dinghyEditBrand').value = p.brand || '';
+      document.getElementById('dinghyEditStock').value = p.stock;
+      document.getElementById('dinghyEditMin').value = p.min_stock;
+      document.getElementById('dinghyEditStatus').value = p.status || 'Active';
+      fillDinghySectionSelects();
+      document.getElementById('dinghyEditSection').value = p.group_name || 'General';
+      const isOld = (p.status || '').toLowerCase() === 'old';
+      const btn = document.getElementById('dinghyToggleOldBtn');
+      btn.textContent = isOld ? 'Mark Active' : 'Mark Old';
+      btn.className = 'btn ' + (isOld ? 'btn-green' : 'btn-red');
+      document.getElementById('dinghySheet').classList.add('open');
+    }
+
+    function closeDinghySheet() {
+      document.getElementById('dinghySheet').classList.remove('open');
+      dinghyActiveSku = null;
+    }
+
+    async function dinghySheetStock(delta) {
+      await quickDinghyStock(dinghyActiveSku, delta);
+      document.getElementById('dinghyEditStock').value =
+        dinghyProducts.find(p => p.sku === dinghyActiveSku)?.stock ?? 0;
+    }
+
+    async function saveDinghyProduct() {
+      await api(`/api/dinghy/products/${encodeURIComponent(dinghyActiveSku)}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          name: document.getElementById('dinghyEditName').value,
+          brand: document.getElementById('dinghyEditBrand').value,
+          stock: +document.getElementById('dinghyEditStock').value,
+          min_stock: +document.getElementById('dinghyEditMin').value,
+          status: document.getElementById('dinghyEditStatus').value,
+          group_name: document.getElementById('dinghyEditSection').value,
+        })
+      });
+      toast('Saved'); closeDinghySheet(); loadDinghyProducts();
+    }
+
+    async function toggleDinghyOld() {
+      const p = dinghyProducts.find(x => x.sku === dinghyActiveSku);
+      const isOld = (p?.status || '').toLowerCase() === 'old';
+      await setDinghyProductStatus(dinghyActiveSku, isOld ? 'Active' : 'Old');
+      closeDinghySheet();
+    }
+
+    async function deleteDinghyProduct() {
+      if (!confirm('Delete this dinghy item?')) return;
+      await api(`/api/dinghy/products/${encodeURIComponent(dinghyActiveSku)}`, {method:'DELETE'});
+      toast('Deleted'); closeDinghySheet(); loadDinghyProducts();
+    }
+
+    async function openDinghyAdd() {
+      try {
+        const data = await api('/api/dinghy/next-sku');
+        document.getElementById('dinghyAddSku').value = data.sku;
+        fillDinghySectionSelects();
+        document.getElementById('dinghyAddSheet').classList.add('open');
+      } catch (e) { toast(e.message); }
+    }
+
+    function closeDinghyAdd() { document.getElementById('dinghyAddSheet').classList.remove('open'); }
+
+    async function addDinghyProduct() {
+      await api('/api/dinghy/products', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          sku: document.getElementById('dinghyAddSku').value,
+          name: document.getElementById('dinghyAddName').value,
+          brand: document.getElementById('dinghyAddBrand').value,
+          stock: +document.getElementById('dinghyAddStock').value,
+          min_stock: +document.getElementById('dinghyAddMin').value,
+          group_name: document.getElementById('dinghyAddSection').value,
+        })
+      });
+      toast('Item added'); closeDinghyAdd(); loadDinghyProducts();
+    }
+
     let exportInProgress = false;
 
     async function shareExportFile(url, mimeType, fallbackName, shareTitle) {
@@ -2121,6 +2441,7 @@ PAGE = """
       if (document.body.classList.contains('locked')) return;
       if (document.getElementById('screen-stock').classList.contains('active')) loadProducts();
       if (document.getElementById('screen-linen').classList.contains('active')) loadLinenProducts();
+      if (document.getElementById('screen-dinghy').classList.contains('active')) loadDinghyProducts();
     }, 30000);
   </script>
 </body>
@@ -2437,6 +2758,188 @@ def api_linen_status(sku):
         ensure_linen_schema(conn)
         with conn.cursor() as cur:
             cur.execute("UPDATE linen_items SET status=%s WHERE sku=%s", (status, sku))
+            if cur.rowcount == 0:
+                return jsonify({"error": "Item not found"}), 404
+        conn.commit()
+        return jsonify({"ok": True, "sku": sku, "status": status})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+# -------- Dinghy API (separate tables — does not touch main stock) --------
+
+@app.route("/api/dinghy/products")
+def api_dinghy_products():
+    conn = get_conn()
+    try:
+        return jsonify(list_dinghy_products(conn))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/next-sku")
+def api_dinghy_next_sku():
+    conn = get_conn()
+    try:
+        return jsonify({"sku": generate_next_dinghy_sku(conn)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/products", methods=["POST"])
+def api_dinghy_add():
+    data = request.get_json(silent=True) or {}
+    sku = (data.get("sku") or "").strip().upper()
+    if not sku:
+        return jsonify({"error": "SKU required"}), 400
+    group_name = (data.get("group_name") or "General").strip() or "General"
+    try:
+        stock = int(data.get("stock", 0))
+        min_stock = int(data.get("min_stock", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Stock values must be numbers"}), 400
+
+    conn = get_conn()
+    try:
+        ensure_dinghy_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT sku FROM dinghy_items WHERE sku=%s", (sku,))
+            if cur.fetchone():
+                return jsonify({"error": "SKU already exists"}), 400
+            cur.execute(
+                "INSERT INTO dinghy_sections(name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (group_name,)
+            )
+            cur.execute(
+                "INSERT INTO dinghy_items VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (sku, data.get("name", ""), data.get("brand", ""), stock, min_stock, "Active", group_name),
+            )
+        conn.commit()
+        return jsonify({"ok": True, "sku": sku})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/products/<sku>", methods=["PUT"])
+def api_dinghy_update(sku):
+    data = request.get_json(silent=True) or {}
+    try:
+        stock = int(data.get("stock", 0))
+        min_stock = int(data.get("min_stock", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Stock values must be numbers"}), 400
+    group_name = (data.get("group_name") or "General").strip() or "General"
+
+    conn = get_conn()
+    try:
+        ensure_dinghy_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO dinghy_sections(name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (group_name,)
+            )
+            cur.execute("""
+                UPDATE dinghy_items SET name=%s, brand=%s, stock=%s, min_stock=%s, status=%s, group_name=%s
+                WHERE sku=%s
+            """, (data.get("name", ""), data.get("brand", ""), stock, min_stock,
+                  data.get("status", "Active"), group_name, sku))
+            if cur.rowcount == 0:
+                return jsonify({"error": "Item not found"}), 404
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/products/<sku>", methods=["DELETE"])
+def api_dinghy_delete(sku):
+    conn = get_conn()
+    try:
+        ensure_dinghy_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM dinghy_items WHERE sku=%s", (sku,))
+            if cur.rowcount == 0:
+                return jsonify({"error": "Item not found"}), 404
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/stock", methods=["POST"])
+def api_dinghy_stock():
+    data = request.get_json(silent=True) or {}
+    sku = (data.get("sku") or "").strip().upper()
+    try:
+        change = int(data.get("change"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid change value"}), 400
+
+    conn = get_conn()
+    try:
+        new_stock = adjust_dinghy_stock(conn, sku, change)
+        if new_stock is None:
+            return jsonify({"error": "Item not found"}), 404
+        return jsonify({"sku": sku, "stock": new_stock})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/products/<sku>/section", methods=["POST"])
+def api_dinghy_move_section(sku):
+    data = request.get_json(silent=True) or {}
+    group_name = (data.get("group_name") or "").strip()
+    if not group_name:
+        return jsonify({"error": "Section name required"}), 400
+    sku = sku.strip().upper()
+
+    conn = get_conn()
+    try:
+        ensure_dinghy_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO dinghy_sections(name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (group_name,)
+            )
+            cur.execute("UPDATE dinghy_items SET group_name=%s WHERE sku=%s", (group_name, sku))
+            if cur.rowcount == 0:
+                return jsonify({"error": "Item not found"}), 404
+        conn.commit()
+        return jsonify({"ok": True, "sku": sku, "group_name": group_name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route("/api/dinghy/products/<sku>/status", methods=["POST"])
+def api_dinghy_status(sku):
+    data = request.get_json(silent=True) or {}
+    status = (data.get("status") or "").strip()
+    if status.lower() == "old":
+        status = "Old"
+    elif status.lower() == "active":
+        status = "Active"
+    else:
+        return jsonify({"error": "Status must be Active or Old"}), 400
+    sku = sku.strip().upper()
+
+    conn = get_conn()
+    try:
+        ensure_dinghy_schema(conn)
+        with conn.cursor() as cur:
+            cur.execute("UPDATE dinghy_items SET status=%s WHERE sku=%s", (status, sku))
             if cur.rowcount == 0:
                 return jsonify({"error": "Item not found"}), 404
         conn.commit()
